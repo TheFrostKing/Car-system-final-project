@@ -2,36 +2,57 @@
 #include <Display.h>
 #include <TM1637Display.h>
 
+//Thermistor formula
+int Vo;
+float R1 = 2252;
+float logR2, R2, T;
+float A = 1.484778004e-03, B = 2.348962910e-04, C = 1.006037158e-07;  // Steinhart-Hart and Hart Coefficients
+//modes
+const int NORMAL = 1;
+const int HAZARD = 2;
+int mode = NORMAL;
+const int ON = 1;
+const int OFF = 2;
+int changeStateLeft = 0;
+int changeStateRight = 0;
+
+//Pins
 const int RED_LED   = 4; // RED LED
 const int GREEN_LED   = 5; // GREEN LED
 const int BLUE_LED   = 6; // BLUE LED
 const int YELLOW_LED   = 7; // YELLOW LED
 const int POTMETER = 14;
+const int THERMISTOR = 15;
 const int RIGHT_BUTTON = 8;
 const int LEFT_BUTTON = 9;
 const int LDR = 16;
-const int UPPER_TH = 300; // THIS VALUES MAY NEED TO BE CHANGED DEPENDING ON THE LIGHT CONDITIONS IN THE BUILDING
-const int LOWER_TH = 200; //THIS VALUES MAY NEED TO BE CHANGED DEPENDING ON THE LIGHT CONDITIONS IN THE BUILDING
+const int UPPER_TH = 400; // THIS VALUE MAY NEED TO BE CHANGED DEPENDING ON THE LIGHT CONDITIONS IN THE BUILDING
+const int LOWER_TH = 250; //THIS VALUE MAY NEED TO BE CHANGED DEPENDING ON THE LIGHT CONDITIONS IN THE BUILDING
 //setting intervals
 unsigned long previousMillis = 0;
-
-const int RED_INTERVAL = 380; // ms
-const int GREEN_INTERVAL = 600; // ms
-const int BLUE_INTERVAL = 360; // ms
+const int RED_INTERVAL = 1000; // ms
+const int BLINKER_INTERVAL = 400; // ms
 const int YELLOW_INTERVAL = 200; // ms
-const int BUTTON_INTERVAL = 300;
+const int BUTTON_INTERVAL_LEFT_GLOBAL = 40;
+const int BUTTON_INTERVAL_RIGHT_GLOBAL = 40;
 const int BUTTON_INTERVAL_RIGHT = 50;//ms
 const int BUTTON_INTERVAL_LEFT = 50;
 const int POT_INTERVAL = 10;
+const int THERMISTOR_INTERVAL = 5000;
+const int LDR_INTERVAL = 50;
 
 //setting times
 unsigned long left_btn_time = 0;
+unsigned long left_btn_time_global = 0;
+unsigned long right_btn_time_global = 0;
 unsigned long right_btn_time = 0;
 unsigned long rled_time = 0;
 unsigned long gled_time = 0;
 unsigned long bled_time = 0;
 unsigned long yled_time = 0;
 unsigned long pot_time = 0;
+unsigned long thermistor = 0;
+unsigned long ldr_time = 0;
 
 //setting last state
 int red_state = LOW;
@@ -39,9 +60,6 @@ int green_state = LOW;
 int blue_state = LOW;
 int yellow_state = LOW;
 
-int changeState = 0;
-const int ON = 1;
-const int OFF = 2;
 //setting potentiometer const
 const int POT_LEFT = -1;
 const int POT_CENTER = 0;
@@ -49,8 +67,6 @@ const int POT_RIGHT = 1;
 unsigned long current_time;
 int leftBtnLast = HIGH;
 int rightBtnLast = HIGH;
-//functions
-
 
 //bools
 bool isLeftBlinkerStopTriggered = false;
@@ -58,6 +74,29 @@ bool leftBlinkerTurned = false;
 bool isRightBlinkerStopTriggered = false;
 bool rightBlinkerTurned = false;
 int potValue;
+bool isHazardEnabled = false;
+bool isDark = false;
+bool previousStats = false;
+
+//functions
+void BlinkHazard(int ledPin) // toggle RED_LED right turn
+{
+  if (current_time - previousMillis >= RED_INTERVAL)
+  {
+    if (isHazardEnabled) {
+      // save the last time you blinked the LED
+      previousMillis = current_time;
+      // if the LED is off turn it on and vice-versa:
+      if (red_state == LOW) {
+        red_state = HIGH;
+      } else {
+        red_state = LOW;
+      }
+    }
+  }
+  // set the LED with the ledState of the variable:
+  digitalWrite(ledPin, red_state);
+}
 
 void LeftBlinker() // stops the blinker with rotating the wheel
 {
@@ -72,11 +111,10 @@ void LeftBlinker() // stops the blinker with rotating the wheel
       digitalWrite(BLUE_LED, LOW);
       isLeftBlinkerStopTriggered = false;
       leftBlinkerTurned = false;
-      changeState = 2;
+      changeStateLeft = OFF;
     }
   }
 }
-
 void RightBlinker()
 {
   if (rightBlinkerTurned == true)
@@ -87,14 +125,16 @@ void RightBlinker()
     }
     if (potValue < POT_RIGHT && isRightBlinkerStopTriggered == true)
     {
-      digitalWrite(RED_LED, LOW);
-      isRightBlinkerStopTriggered = false;
+      digitalWrite(GREEN_LED, LOW);
       rightBlinkerTurned = false;
+      changeStateRight = OFF;
+      isRightBlinkerStopTriggered = false;
     }
   }
 }
 void setup()
 {
+  Serial.begin(9600);
   pinMode(RED_LED , OUTPUT);
   pinMode(GREEN_LED, OUTPUT);
   pinMode(BLUE_LED, OUTPUT);
@@ -109,7 +149,6 @@ void setup()
   bled_time = millis();
   yled_time = millis();
   Display.clear();
-  Serial.begin(9600);
 }
 
 void loop()
@@ -118,95 +157,196 @@ void loop()
   potValue = map(analogRead(POTMETER), 0, 1023, -2, 2);
   const int LEFT_BTN_STATE = digitalRead(LEFT_BUTTON);
   const int RIGHT_BTN_STATE = digitalRead(RIGHT_BUTTON);
-  if (rightBlinkerTurned == true)
+  int ldrValue = analogRead(LDR);
+  if (Serial.available())
   {
-    if (current_time - rled_time >= RED_INTERVAL)
+    String dataTransferred = Serial.readStringUntil('\n');
     {
-      // save the last time you blinked the LED
-      rled_time = current_time;
-      // if the LED is off turn it on and vice-versa:
-      if (red_state == LOW) {
-        red_state = HIGH;
-      } else {
-        red_state = LOW;
+      if ( dataTransferred == "NORMAL") //checks for the string NORMAL in the serial monitor
+      {
+        mode = NORMAL;
+
       }
-      digitalWrite(RED_LED, red_state);
+      else if (dataTransferred == "HAZARD") //checks for the string HAZARD in the serial monitor
+      {
+        mode = HAZARD;
+      }
     }
   }
-
-  if (current_time - previousMillis >= BLUE_INTERVAL)
+  if (mode == HAZARD)
   {
-    // save the last time you blinked the LED
-    previousMillis = current_time;
-    // if the LED is off turn it on and vice-versa:
-    if (leftBlinkerTurned == true)
+    isHazardEnabled = true;
+    BlinkHazard(RED_LED);
+    BlinkHazard(GREEN_LED);
+    BlinkHazard(BLUE_LED);
+  }
+  if ((current_time - ldr_time) > LDR_INTERVAL) //headlights
+  {
+    if (ldrValue > UPPER_TH)    //applying hysteresis, using two tresholds to remove oscillation
     {
-      if (blue_state == LOW) {
-        blue_state = HIGH;
-      } else {
-        blue_state = LOW;
+      isDark = false;
+      if (isDark != previousStats)  // using state detections which I learned from the buttons so when I change a state it would register a change on the program
+      {
+        if (!isDark)
+        {
+          digitalWrite(YELLOW_LED, LOW);
+          Serial.println("OFF");
+        }
+        previousStats = isDark;
       }
-      // set the LED with the ledState of the variable:
-      digitalWrite(BLUE_LED, blue_state);
     }
+
+    if (ldrValue < LOWER_TH)
+    {
+      isDark = true;
+      if (isDark != previousStats)
+      {
+        if (isDark)
+        {
+          digitalWrite(YELLOW_LED, HIGH);
+          Serial.println("ON");
+        }
+        previousStats = isDark;
+      }
+    }
+    ldr_time = current_time;
   }
 
 
-  if ((current_time - left_btn_time ) > BUTTON_INTERVAL_LEFT)
+  if ((current_time - left_btn_time_global) > BUTTON_INTERVAL_LEFT_GLOBAL)
   {
     if (LEFT_BTN_STATE != leftBtnLast)
     {
       if (LEFT_BTN_STATE == LOW)
       {
-        changeState++;
-        changeState = changeState % 3;
-        if (changeState == 0)
+        changeStateLeft++;
+        changeStateLeft = changeStateLeft % 3;
+        changeStateRight = 2;
+        if (changeStateLeft == 0)
         {
-          changeState = 1;
+          changeStateLeft = ON;
         }
+        Serial.println("Left");
       }
       leftBtnLast = LEFT_BTN_STATE;
     }
-    if (changeState == 1) {
-      leftBlinkerTurned = true;
-      if (rightBlinkerTurned == true)
-      {
-        digitalWrite(RED_LED, LOW);
-        rightBlinkerTurned = false;
-      }
-    }
-    if (changeState == 2)
-    {
-      digitalWrite(BLUE_LED, LOW);
-      leftBlinkerTurned = false;
-    }
-    // Reset for next interval.
-    left_btn_time = current_time;
+    left_btn_time_global = current_time;
   }
 
-  if ((current_time - pot_time ) > POT_INTERVAL)
-  {
-    RightBlinker();
-    LeftBlinker();
-    pot_time = current_time;
-  }
 
-  if ((current_time - right_btn_time ) > BUTTON_INTERVAL_RIGHT)
+  if ((current_time - right_btn_time_global) > BUTTON_INTERVAL_RIGHT_GLOBAL)
   {
     if (RIGHT_BTN_STATE != rightBtnLast)
     {
       if (RIGHT_BTN_STATE == LOW)
       {
-        rightBlinkerTurned = true;
-        changeState = 2;
-        if (leftBlinkerTurned == true)
+        changeStateLeft = 2;
+        changeStateRight++;
+        changeStateRight = changeStateRight % 3;
+        if (changeStateRight == 0)
         {
-          digitalWrite(BLUE_LED, LOW);
-          leftBlinkerTurned = false;
+          changeStateRight = ON;
         }
+        Serial.println("Right");
       }
       rightBtnLast = RIGHT_BTN_STATE;
     }
-    right_btn_time = current_time;
+    right_btn_time_global = current_time;
+  }
+
+
+  if ((current_time - thermistor ) > THERMISTOR_INTERVAL) // applying the thermistor which has 5sec refresh rate
+  {
+    Vo = analogRead(THERMISTOR);
+    R2 = R1 * (1023.0 / (float)Vo - 1.0);
+    logR2 = log(R2);
+    T = (1.0 / (A + B * logR2 + C * logR2 * logR2 * logR2));
+    T =  T - 273.15;
+    Serial.print("Temp: ");
+    Serial.println(T);
+    thermistor = current_time;
+  }
+                                            
+  if (mode == NORMAL)                //Normal Mode
+  {
+    isHazardEnabled = false;
+
+    digitalWrite(RED_LED, LOW);
+    if (rightBlinkerTurned == true)
+    {
+      if (current_time - gled_time >= BLINKER_INTERVAL)
+      {
+        // save the last time you blinked the LED
+        gled_time = current_time;
+        // if the LED is off turn it on and vice-versa:
+        if (green_state == LOW) {
+          green_state = HIGH;
+        } else {
+          green_state = LOW;
+        }
+        // set the LED with the ledState of the variable:
+        digitalWrite(GREEN_LED, green_state);
+      }
+    }
+
+    if (leftBlinkerTurned == true)
+    {
+      if (current_time - previousMillis >= BLINKER_INTERVAL)
+      {
+        // save the last time you blinked the LED
+        previousMillis = current_time;
+        // if the LED is off turn it on and vice-versa:
+        if (blue_state == LOW) {
+          blue_state = HIGH;
+        } else {
+          blue_state = LOW;
+        }
+        // set the LED with the ledState of the variable:
+        digitalWrite(BLUE_LED, blue_state);
+      }
+    }
+
+    if ((current_time - left_btn_time ) > BUTTON_INTERVAL_LEFT)
+    {
+      if (changeStateLeft == ON) {
+        leftBlinkerTurned = true;
+        changeStateRight = OFF;
+        if (rightBlinkerTurned == true)
+        {
+          digitalWrite(GREEN_LED, LOW);
+          rightBlinkerTurned = false;
+        }
+      }
+      else
+      {
+        digitalWrite(BLUE_LED, LOW);
+        leftBlinkerTurned = false;
+      }
+      // Reset for next interval.
+      left_btn_time = current_time;
+    }
+
+    if ((current_time - pot_time ) > POT_INTERVAL)  //POTMETER
+    {
+      RightBlinker();
+      LeftBlinker();
+      pot_time = current_time;
+    }
+
+    if ((current_time - right_btn_time ) > BUTTON_INTERVAL_RIGHT)
+    {
+
+      if (changeStateRight == ON)
+      {
+        rightBlinkerTurned = true;
+        changeStateLeft = 2;
+        leftBlinkerTurned = false;
+      }
+      else {
+        digitalWrite(GREEN_LED, LOW);
+        rightBlinkerTurned = false;
+      }
+      right_btn_time = current_time;
+    }
   }
 }
