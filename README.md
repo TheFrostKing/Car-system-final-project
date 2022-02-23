@@ -1,7 +1,7 @@
 #First semester final project for the Embedded Systems course in C++ and creating a simple protocol for communication betweeen Arduino and C# GUI app 
 
 **How it works**
-  - Basically, the arduino simulates the physical buttons and instruments of a car and it is connected to a GUI application,written on C#, that plays role of a visual dashboard.
+  - An arduino UNO R3 simulates physical buttons and instruments of a car and it is connected to a GUI application,written on C#, that plays role of a visual dashboard.
 
  **Arduino:** 
   - captures temp and displays it every 15 seconds in blackbox logger
