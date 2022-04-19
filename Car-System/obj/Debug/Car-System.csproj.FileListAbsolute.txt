@@ -1,0 +1,10 @@
+D:\c# for ard\Car-System\bin\Debug\Car-System.exe.config
+D:\c# for ard\Car-System\bin\Debug\Car-System.exe
+D:\c# for ard\Car-System\bin\Debug\Car-System.pdb
+D:\c# for ard\Car-System\obj\Debug\Car-System.csproj.AssemblyReference.cache
+D:\c# for ard\Car-System\obj\Debug\Car_System.Form1.resources
+D:\c# for ard\Car-System\obj\Debug\Car_System.Properties.Resources.resources
+D:\c# for ard\Car-System\obj\Debug\Car-System.csproj.GenerateResource.cache
+D:\c# for ard\Car-System\obj\Debug\Car-System.csproj.CoreCompileInputs.cache
+D:\c# for ard\Car-System\obj\Debug\Car-System.exe
+D:\c# for ard\Car-System\obj\Debug\Car-System.pdb
